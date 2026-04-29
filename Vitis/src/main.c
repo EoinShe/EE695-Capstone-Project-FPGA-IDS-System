@@ -207,6 +207,19 @@ static void update_targets(uint32_t dst, uint32_t pktinfo) {
   }
 }
 
+static void reset_target_stats(void) {
+
+  // Reset ONLY volumetric counts (total packets)
+  for (int i = 0; i < TARGET_COUNT; i++) {
+    targets[i].total = 0;
+  }
+
+  for (int i = 0; i < dynamic_count; i++) {
+    dynamic_targets[i].total = 0;
+  }
+}
+
+
 static void print_window(uint32_t idx, window_summary_t *w) {
   uart_puts("Window ");
   uart_put_dec(idx + 1);
@@ -366,6 +379,8 @@ int main(void) {
         windows[win_count].packets = packets;
         win_count++;
       }
+
+      reset_target_stats();
 
       last_win++;
     }
