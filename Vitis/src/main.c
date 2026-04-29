@@ -285,11 +285,11 @@ static void print_attacks_detected(void) {
     if (targets[i].nulls >= flood_threshold)
       uart_puts("  [!] NULL Scan\r\n");
 
-    if (targets[i].total >= vol_threshold) {
-      uart_puts("  [!] Volumetric Attack (");
-      uart_put_dec(targets[i].total);
-      uart_puts(" total packets)\r\n");
-    }
+    // if (targets[i].total >= vol_threshold) {
+    //   uart_puts("  [!] Volumetric Attack (");
+    //   uart_put_dec(targets[i].total);
+    //   uart_puts(" total packets)\r\n");
+    // }
 
     uart_puts("\r\n");
   }
