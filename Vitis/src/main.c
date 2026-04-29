@@ -78,12 +78,14 @@ uint16_t vol_threshold = 20;
 uint16_t flood_threshold = 15;
 // static int dropped = 0;
 
-typedef struct {
+typedef struct
+{
   uint32_t status;
   uint32_t packets;
 } window_summary_t;
 
-typedef struct {
+typedef struct
+{
   uint32_t ip;
   const char *name;
   uint32_t total;
@@ -95,8 +97,10 @@ typedef struct {
 } target_stats_t;
 
 static target_stats_t targets[] = {
-    {0xC0A80A03, "VMware-VM1"}, {0xC0A80A04, "VMware-VM2"},
-    {0xC0A80A05, "Server1"},    {0xC0A80A06, "Server2"},
+    {0xC0A80A03, "VMware-VM1"},
+    {0xC0A80A04, "VMware-VM2"},
+    {0xC0A80A05, "Server1"},
+    {0xC0A80A06, "Server2"},
     {0xC0A80A07, "VMware-VM3"},
 };
 
@@ -105,24 +109,29 @@ static int dynamic_count = 0;
 
 #define TARGET_COUNT (sizeof(targets) / sizeof(targets[0]))
 
-static void uart_putc(char c) {
+static void uart_putc(char c)
+{
   XUartLite_SendByte(UART_BASE, c);
   usleep(80);
 }
 
-static void uart_puts(const char *s) {
+static void uart_puts(const char *s)
+{
   while (*s)
     uart_putc(*s++);
 }
 
-static void uart_put_dec(uint32_t v) {
+static void uart_put_dec(uint32_t v)
+{
   char buf[10];
   int i = 0;
-  if (v == 0) {
+  if (v == 0)
+  {
     uart_putc('0');
     return;
   }
-  while (v) {
+  while (v)
+  {
     buf[i++] = '0' + (v % 10);
     v /= 10;
   }
@@ -130,7 +139,8 @@ static void uart_put_dec(uint32_t v) {
     uart_putc(buf[i]);
 }
 
-static void uart_put_ip(uint32_t ip) {
+static void uart_put_ip(uint32_t ip)
+{
   uart_put_dec((ip >> 24) & 0xFF);
   uart_putc('.');
   uart_put_dec((ip >> 16) & 0xFF);
@@ -140,8 +150,10 @@ static void uart_put_ip(uint32_t ip) {
   uart_put_dec(ip & 0xFF);
 }
 
-static void send_packet(const packet_record_t *pkt) {
-  for (int i = 0; i < pkt->len_words; i++) {
+static void send_packet(const packet_record_t *pkt)
+{
+  for (int i = 0; i < pkt->len_words; i++)
+  {
     uint32_t ctrl = CTRL_TVALID;
     if (i == pkt->len_words - 1)
       ctrl |= CTRL_TLAST;
@@ -153,10 +165,13 @@ static void send_packet(const packet_record_t *pkt) {
   }
 }
 
-static void update_targets(uint32_t dst, uint32_t pktinfo) {
+static void update_targets(uint32_t dst, uint32_t pktinfo)
+{
 
-  for (int i = 0; i < TARGET_COUNT; i++) {
-    if (targets[i].ip == dst) {
+  for (int i = 0; i < TARGET_COUNT; i++)
+  {
+    if (targets[i].ip == dst)
+    {
       targets[i].total++;
 
       if (pktinfo & PKTINFO_SYN)
@@ -174,8 +189,10 @@ static void update_targets(uint32_t dst, uint32_t pktinfo) {
     }
   }
 
-  for (int i = 0; i < dynamic_count; i++) {
-    if (dynamic_targets[i].ip == dst) {
+  for (int i = 0; i < dynamic_count; i++)
+  {
+    if (dynamic_targets[i].ip == dst)
+    {
       dynamic_targets[i].total++;
 
       if (pktinfo & PKTINFO_SYN)
@@ -193,7 +210,8 @@ static void update_targets(uint32_t dst, uint32_t pktinfo) {
     }
   }
 
-  if (dynamic_count < MAX_DYNAMIC_TARGETS) {
+  if (dynamic_count < MAX_DYNAMIC_TARGETS)
+  {
     dynamic_targets[dynamic_count].ip = dst;
     dynamic_targets[dynamic_count].name = 0;
     dynamic_targets[dynamic_count].total = 1;
@@ -207,20 +225,29 @@ static void update_targets(uint32_t dst, uint32_t pktinfo) {
   }
 }
 
-static void reset_target_stats(void) {
+static void reset_target_stats(void)
+{
 
   // Reset ONLY volumetric counts (total packets)
-  for (int i = 0; i < TARGET_COUNT; i++) {
+  for (int i = 0; i < TARGET_COUNT; i++)
+  {
     targets[i].total = 0;
+    targets[i].syn = 0;
+    targets[i].udp = 0;
+    targets[i].icmp = 0;
   }
 
-  for (int i = 0; i < dynamic_count; i++) {
+  for (int i = 0; i < dynamic_count; i++)
+  {
     dynamic_targets[i].total = 0;
+    dynamic_targets[i].syn = 0;
+    dynamic_targets[i].udp = 0;
+    dynamic_targets[i].icmp = 0;
   }
 }
 
-
-static void print_window(uint32_t idx, window_summary_t *w) {
+static void print_window(uint32_t idx, window_summary_t *w)
+{
   uart_puts("Window ");
   uart_put_dec(idx + 1);
   uart_puts(":\r\n");
@@ -251,20 +278,21 @@ static void print_window(uint32_t idx, window_summary_t *w) {
   uart_puts("\r\n");
 }
 
-static uint32_t get_dst_from_packet(const packet_record_t *pkt) {
+static uint32_t get_dst_from_packet(const packet_record_t *pkt)
+{
   uint32_t hi = pkt->words[7] & 0xFFFF;
   uint32_t lo = (pkt->words[8] >> 16) & 0xFFFF;
   return (hi << 16) | lo;
 }
 
-
-
-static void print_attacks_detected(void) {
+static void print_attacks_detected(void)
+{
   uart_puts("\r\n=====================================\r\n");
   uart_puts("Attacks Detected\r\n");
   uart_puts("=====================================\r\n");
 
-  for (int i = 0; i < TARGET_COUNT; i++) {
+  for (int i = 0; i < TARGET_COUNT; i++)
+  {
     if (targets[i].total == 0)
       continue;
 
@@ -274,19 +302,22 @@ static void print_attacks_detected(void) {
     uart_put_ip(targets[i].ip);
     uart_puts(")\r\n");
 
-    if (targets[i].syn >= flood_threshold) {
+    if (targets[i].syn >= flood_threshold)
+    {
       uart_puts("  [!] SYN Attack (");
       uart_put_dec(targets[i].syn);
       uart_puts(" SYN packets)\r\n");
     }
 
-    if (targets[i].udp >= flood_threshold) {
+    if (targets[i].udp >= flood_threshold)
+    {
       uart_puts("  [!] UDP Flood (");
       uart_put_dec(targets[i].udp);
       uart_puts(" UDP packets)\r\n");
     }
 
-    if (targets[i].icmp >= flood_threshold) {
+    if (targets[i].icmp >= flood_threshold)
+    {
       uart_puts("  [!] ICMP Flood (");
       uart_put_dec(targets[i].icmp);
       uart_puts(" ICMP packets)\r\n");
@@ -307,26 +338,30 @@ static void print_attacks_detected(void) {
     uart_puts("\r\n");
   }
 
-  for (int i = 0; i < dynamic_count; i++) {
+  for (int i = 0; i < dynamic_count; i++)
+  {
     if (dynamic_targets[i].total == 0)
       continue;
 
     uart_puts("Target: ");
     uart_put_ip(dynamic_targets[i].ip);
     uart_puts("\r\n");
-    if (dynamic_targets[i].syn >= flood_threshold) {
+    if (dynamic_targets[i].syn >= flood_threshold)
+    {
       uart_puts("  [!] SYN Attack (");
       uart_put_dec(dynamic_targets[i].syn);
       uart_puts(" SYN packets)\r\n");
     }
 
-    if (dynamic_targets[i].udp >= flood_threshold) {
+    if (dynamic_targets[i].udp >= flood_threshold)
+    {
       uart_puts("  [!] UDP Flood (");
       uart_put_dec(dynamic_targets[i].udp);
       uart_puts(" UDP packets)\r\n");
     }
 
-    if (dynamic_targets[i].icmp >= flood_threshold) {
+    if (dynamic_targets[i].icmp >= flood_threshold)
+    {
       uart_puts("  [!] ICMP Flood (");
       uart_put_dec(dynamic_targets[i].icmp);
       uart_puts(" ICMP packets)\r\n");
@@ -338,7 +373,8 @@ static void print_attacks_detected(void) {
     if (dynamic_targets[i].nulls >= flood_threshold)
       uart_puts("  [!] NULL Scan\r\n");
 
-    if (dynamic_targets[i].total > vol_threshold) {
+    if (dynamic_targets[i].total > vol_threshold)
+    {
       uart_puts("  [!] Volumetric Attack (");
       uart_put_dec(dynamic_targets[i].total);
       uart_puts(" total packets)\r\n");
@@ -348,7 +384,8 @@ static void print_attacks_detected(void) {
   }
 }
 
-int main(void) {
+int main(void)
+{
 
   uart_puts("\r\n====================================================\r\n");
   uart_puts("        EE695 FPGA Intrusion Detection \r\n");
@@ -363,18 +400,21 @@ int main(void) {
   uint32_t threshold_val = ((uint32_t)flood_threshold << 16) | vol_threshold;
   Xil_Out32(GPIO_THR_BASE, threshold_val);
 
-  for (uint32_t i = 0; i < ACTIVE_COUNT; i++) {
+  for (uint32_t i = 0; i < ACTIVE_COUNT; i++)
+  {
     send_packet(&ACTIVE_DATASET[i]);
     usleep(10000); // changes packets per window
 
     uint32_t cur = Xil_In32(GPIO_WINID_BASE);
 
-    while (last_win < cur && win_count < MAX_WINDOWS) {
+    while (last_win < cur && win_count < MAX_WINDOWS)
+    {
       uint32_t stat = Xil_In32(GPIO_STAT_BASE);
       uint32_t ws = Xil_In32(GPIO_WINSTATS_BASE);
       uint32_t packets = (ws >> 16) & 0xFFFF;
 
-      if (packets) {
+      if (packets)
+      {
         windows[win_count].status = stat;
         windows[win_count].packets = packets;
         win_count++;
@@ -413,23 +453,24 @@ int main(void) {
     update_targets(dst, info);
   }
 
-
   usleep(700000);
 
   {
     uint32_t cur = Xil_In32(GPIO_WINID_BASE);
 
-    while (last_win < cur && win_count < MAX_WINDOWS) {
+    while (last_win < cur && win_count < MAX_WINDOWS)
+    {
       uint32_t stat = Xil_In32(GPIO_STAT_BASE);
       uint32_t ws = Xil_In32(GPIO_WINSTATS_BASE);
       uint32_t packets = (ws >> 16) & 0xFFFF;
 
-      if (packets) {
+      if (packets)
+      {
         windows[win_count].status = stat;
         windows[win_count].packets = packets;
         win_count++;
       }
-
+      reset_target_stats();
       last_win++;
     }
   }
@@ -471,7 +512,8 @@ int main(void) {
   uart_puts("             DEMO DONE\r\n");
   uart_puts("=====================================\r\n");
 
-  while (1) {
+  while (1)
+  {
   }
 
   return 0;
