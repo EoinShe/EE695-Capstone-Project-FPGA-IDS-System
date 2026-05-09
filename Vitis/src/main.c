@@ -1,4 +1,4 @@
-// IMPORTANT BAUD RATE IS 115200
+// *IMPORTANT BAUD RATE IS 115200 *
 
 #include "sleep.h"
 #include "xil_io.h"
@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
+// Dataset Selection
 // Comment the below out as needed
 
 #include "Packets/ids_test_packets.h"
@@ -44,20 +45,26 @@
 // #define ACTIVE_DATASET xmas_packet_real_world
 // #define ACTIVE_COUNT xmas_packet_real_world_count
 
-#define GPIO_PKT_BASE XPAR_AXI_GPIO_PKT_BASEADDR
-#define GPIO_CTRL_BASE XPAR_AXI_GPIO_TRIG_BASEADDR
-#define GPIO_THR_BASE XPAR_AXI_GPIO_THR_BASEADDR
-#define GPIO_STAT_BASE XPAR_AXI_GPIO_STAT_BASEADDR
-#define GPIO_DST_BASE XPAR_AXI_GPIO_DST_BASEADDR
-#define GPIO_PKTINFO_BASE XPAR_AXI_GPIO_PKTINFO_BASEADDR
-#define GPIO_WINSTATS_BASE XPAR_AXI_GPIO_WINSTATS_BASEADDR
-#define GPIO_WINID_BASE XPAR_AXI_GPIO_0_BASEADDR
+/* --- Hardware Memory Map (GPIO Base Addresses) --- */
+// These defines link the software to the specific AXI-Lite registers in the Vivado Block Design
+#define GPIO_PKT_BASE XPAR_AXI_GPIO_PKT_BASEADDR   // Packet data bus
+#define GPIO_CTRL_BASE XPAR_AXI_GPIO_TRIG_BASEADDR // TVALID/TLAST control signals
+#define GPIO_THR_BASE XPAR_AXI_GPIO_THR_BASEADDR   // Threshold configuration
+#define GPIO_STAT_BASE XPAR_AXI_GPIO_STAT_BASEADDR // Global status/alert register
+#define GPIO_DST_BASE XPAR_AXI_GPIO_DST_BASEADDR // Destination IP
+
+#define GPIO_PKTINFO_BASE XPAR_AXI_GPIO_PKTINFO_BASEADDR // Individual packet classification
+#define GPIO_WINSTATS_BASE XPAR_AXI_GPIO_WINSTATS_BASEADDR // Packet counts from current window
+#define GPIO_WINID_BASE XPAR_AXI_GPIO_0_BASEADDR  // Sliding window counter
 
 #define UART_BASE XPAR_AXI_UARTLITE_0_BASEADDR
 
+/* --- Bitfields --- */
 #define CTRL_TVALID (1u << 0)
 #define CTRL_TLAST (1u << 1)
 
+
+// Alert masks matching the hardware status_out[31:26]
 #define MASK_VOL_ALERT (1u << 31)
 #define MASK_SYN_ALERT (1u << 30)
 #define MASK_ICMP_ALERT (1u << 29)
@@ -65,6 +72,7 @@
 #define MASK_XMAS_ALERT (1u << 27)
 #define MASK_NULL_ALERT (1u << 26)
 
+// Classification masks matching hardware packet_info_out
 #define PKTINFO_SYN (1u << 26)
 #define PKTINFO_UDP (1u << 28)
 #define PKTINFO_ICMP (1u << 27)
@@ -74,10 +82,12 @@
 #define MAX_WINDOWS 16
 #define MAX_DYNAMIC_TARGETS 1
 
-uint16_t vol_threshold = 20;
-uint16_t flood_threshold = 15;
+/* --- Detection Configuration --- */
+uint16_t vol_threshold = 20;  // Total packet limit per 250ms
+uint16_t flood_threshold = 15;  // Protocol-specific limit per 250ms
 // static int dropped = 0;
 
+/* --- Structs for Stats Tracking --- */
 typedef struct
 {
   uint32_t status;
@@ -95,7 +105,7 @@ typedef struct
   uint32_t xmas;
   uint32_t nulls;
 } target_stats_t;
-
+// Pre-defined known network nodes for identification
 static target_stats_t targets[] = {
     {0xC0A80A03, "VMware-VM1"},
     {0xC0A80A04, "VMware-VM2"},
@@ -103,16 +113,17 @@ static target_stats_t targets[] = {
     {0xC0A80A06, "Server2"},
     {0xC0A80A07, "VMware-VM3"},
 };
-
+// Storage for IPs discovered during runtime not in the static list
 static target_stats_t dynamic_targets[MAX_DYNAMIC_TARGETS];
 static int dynamic_count = 0;
 
 #define TARGET_COUNT (sizeof(targets) / sizeof(targets[0]))
 
+/* --- UART Driver Functions --- */
 static void uart_putc(char c)
 {
   XUartLite_SendByte(UART_BASE, c);
-  usleep(80);
+  usleep(80); // Small delay to prevent TX buffer overflow
 }
 
 static void uart_puts(const char *s)
@@ -150,21 +161,22 @@ static void uart_put_ip(uint32_t ip)
   uart_put_dec(ip & 0xFF);
 }
 
+/* Packet Injection Logic  */
 static void send_packet(const packet_record_t *pkt)
 {
   for (int i = 0; i < pkt->len_words; i++)
   {
     uint32_t ctrl = CTRL_TVALID;
     if (i == pkt->len_words - 1)
-      ctrl |= CTRL_TLAST;
+      ctrl |= CTRL_TLAST; // Signal hardware to finish parsing
 
     Xil_Out32(GPIO_PKT_BASE, pkt->words[i]);
-    Xil_Out32(GPIO_CTRL_BASE, ctrl);
-    usleep(10);
+    Xil_Out32(GPIO_CTRL_BASE, ctrl); // Simulation of time between words
     Xil_Out32(GPIO_CTRL_BASE, 0);
   }
 }
 
+/* --- Statistics Aggregator --- */
 static void update_targets(uint32_t dst, uint32_t pktinfo)
 {
 
@@ -188,7 +200,7 @@ static void update_targets(uint32_t dst, uint32_t pktinfo)
       return;
     }
   }
-
+  // Check against dynamic discovery list
   for (int i = 0; i < dynamic_count; i++)
   {
     if (dynamic_targets[i].ip == dst)
@@ -245,7 +257,7 @@ static void reset_target_stats(void)
     dynamic_targets[i].icmp = 0;
   }
 }
-
+/* --- Reporting Functions --- */
 static void print_window(uint32_t idx, window_summary_t *w)
 {
   uart_puts("Window ");
@@ -262,6 +274,7 @@ static void print_window(uint32_t idx, window_summary_t *w)
   uart_put_dec(idx + 1);
   uart_puts(":\r\n");
 
+  // Decode hardware alert flags
   if (w->status & MASK_SYN_ALERT)
     uart_puts("  [!] SYN Flood\r\n");
   if (w->status & MASK_UDP_ALERT)
@@ -384,6 +397,7 @@ static void print_attacks_detected(void)
   }
 }
 
+
 int main(void)
 {
 
@@ -396,19 +410,22 @@ int main(void)
   uint32_t last_win = 0;
 
   Xil_Out32(GPIO_CTRL_BASE, 0);
-
+  
+  // Set Detection Thresholds in Hardware
   uint32_t threshold_val = ((uint32_t)flood_threshold << 16) | vol_threshold;
   Xil_Out32(GPIO_THR_BASE, threshold_val);
-
+  // Main Packet Processing Loop
   for (uint32_t i = 0; i < ACTIVE_COUNT; i++)
   {
     send_packet(&ACTIVE_DATASET[i]);
     usleep(10000); // changes packets per window
 
+    // Poll hardware window ID to detect a 250ms interval boundary
     uint32_t cur = Xil_In32(GPIO_WINID_BASE);
 
     while (last_win < cur && win_count < MAX_WINDOWS)
     {
+      // Latch current window stats from hardware
       uint32_t stat = Xil_In32(GPIO_STAT_BASE);
       uint32_t ws = Xil_In32(GPIO_WINSTATS_BASE);
       uint32_t packets = (ws >> 16) & 0xFFFF;
@@ -447,7 +464,8 @@ int main(void)
 
     // } while (dst1 != dst2 || info1 != info2);
 
-    usleep(100);
+
+    // Extract individual packet classification for per-target statistics
     uint32_t dst = Xil_In32(GPIO_DST_BASE);
     uint32_t info = Xil_In32(GPIO_PKTINFO_BASE);
     update_targets(dst, info);
@@ -474,7 +492,7 @@ int main(void)
       last_win++;
     }
   }
-
+  // --- Final Output Report ---
   uart_puts("\r\n=====================================\r\n");
   uart_puts("RUN CONFIGURATION\r\n");
   uart_puts("=====================================\r\n");
